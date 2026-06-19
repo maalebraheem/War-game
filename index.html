@@ -34,7 +34,9 @@
             box-shadow: inset 0 0 80px rgba(0,0,0,0.9);
             touch-action: pan-y;
         }
-        canvas#gameCanvas.casting { cursor: crosshair; touch-action: none; }
+        /* Keep pan-y while a spell is armed so the battlefield still scrolls;
+           a clean tap casts, a drag scrolls (browsers suppress click after a scroll). */
+        canvas#gameCanvas.casting { cursor: crosshair; }
 
         #ui-layer {
             position: relative; background: linear-gradient(to top, #09090b, #18181b);
@@ -409,6 +411,16 @@ const UNIT_TEMPLATES = {
 };
 const PLAYER_UNITS = Object.keys(UNIT_TEMPLATES).filter(k => k !== 'boss');
 
+/* Visual rank tiers — a unit/castle's look evolves as its level climbs.
+   tier 0: levels 1-2, 1: 3-4, 2: 5-6, 3: 7+ */
+function tierFor(lvl) { return Math.min(3, Math.floor((lvl - 1) / 2)); }
+const TIER = [
+    { name:'bronze',  outline:'#1a1a1a', trim:'#b45309', metal:'#cbd5e1', glow:0,  lw:2 },
+    { name:'silver',  outline:'#e2e8f0', trim:'#cbd5e1', metal:'#e2e8f0', glow:5,  lw:2 },
+    { name:'gold',    outline:'#fbbf24', trim:'#f59e0b', metal:'#fcd34d', glow:9,  lw:2.5 },
+    { name:'crystal', outline:'#67e8f9', trim:'#22d3ee', metal:'#a5f3fc', glow:13, lw:3 },
+];
+
 /* =========================== DOM / CANVAS =============================== */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -642,16 +654,63 @@ class Base {
         }
     }
     draw() {
-        const lvl = this.team === 'player' ? playerTech.baseLvl : cpu.baseLvl;
+        const team = this.team;
+        const lvl = team === 'player' ? playerTech.baseLvl : cpu.baseLvl;
+        const tier = tierFor(lvl);          // fortress look evolves with its level
+        const tr = TIER[tier];
+        const wallCol = team === 'player' ? '#1e293b' : '#3f1d1d';
+        const teamCol = team === 'player' ? '#3b82f6' : '#ef4444';
+        const frontY = team === 'player' ? this.y : this.y + this.height; // edge facing the battlefield
+        const dir = team === 'player' ? -1 : 1;
+
+        // foundation + main wall + brick texture
         ctx.fillStyle = '#222'; ctx.fillRect(this.x-10, this.y-10, this.width+20, this.height+20);
-        ctx.fillStyle = this.team === 'player' ? '#1e293b' : '#3f1d1d';
-        ctx.fillRect(this.x, this.y, this.width, this.height);
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        for (let i=0; i<this.width; i+=40) { ctx.fillRect(this.x+i, this.y, 2, this.height); ctx.fillRect(this.x, this.y+(i%this.height), this.width, 2); }
+        ctx.fillStyle = wallCol; ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        for (let i=0; i<this.width; i+=40) ctx.fillRect(this.x+i, this.y, 2, this.height);
+        for (let j=0; j<this.height; j+=24) ctx.fillRect(this.x, this.y+j, this.width, 2);
+
+        // corner towers — taller at higher tiers
+        const towerW = 26, extra = tier * 14;
+        [this.x - 6, this.x + this.width - towerW + 6].forEach(txp => {
+            const ty = team === 'player' ? this.y - extra : this.y;
+            const th = this.height + 10 + extra;
+            ctx.fillStyle = team === 'player' ? '#0f172a' : '#2a1212';
+            ctx.fillRect(txp, ty, towerW, th);
+            ctx.strokeStyle = tr.trim; ctx.lineWidth = 2; ctx.strokeRect(txp, ty, towerW, th);
+            // flag (one per tower); pole reaches further toward the battlefield each tier
+            const poleBase = team === 'player' ? ty : ty + th;
+            const poleTop = poleBase + dir * (16 + tier * 3);
+            ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(txp + towerW/2, poleBase); ctx.lineTo(txp + towerW/2, poleTop); ctx.stroke();
+            ctx.fillStyle = teamCol;
+            ctx.beginPath(); ctx.moveTo(txp + towerW/2, poleTop);
+            ctx.lineTo(txp + towerW/2 + 14, poleTop - dir * 4);
+            ctx.lineTo(txp + towerW/2, poleTop - dir * 8); ctx.fill();
+        });
+
+        // glowing trim band + crenellations along the battlefield-facing wall
+        if (tr.glow > 0) { ctx.shadowColor = tr.outline; ctx.shadowBlur = tr.glow + 4; }
+        ctx.fillStyle = tr.trim;
+        ctx.fillRect(this.x, team === 'player' ? frontY - 6 : frontY, this.width, 6);
+        for (let mx = this.x + 4; mx < this.x + this.width - 18; mx += 32) {
+            ctx.fillStyle = wallCol;
+            ctx.fillRect(mx, team === 'player' ? frontY - 16 : frontY + 10, 18, 12);
+            ctx.fillStyle = tr.trim;
+            ctx.fillRect(mx, team === 'player' ? frontY - 16 : frontY + 19, 18, 3);
+        }
+        ctx.shadowBlur = 0;
+
+        // gate with trim
         ctx.fillStyle = '#0f172a';
-        ctx.beginPath(); ctx.arc(this.centerX, this.team==='player'? this.y+this.height: this.y, 45, Math.PI, 0, this.team==='player'); ctx.fill();
-        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'center';
-        ctx.fillText(this.team === 'player' ? `PLAYER FORTRESS (Lv.${lvl})` : `ENEMY FORTRESS (Lv.${lvl})`, this.centerX, this.y + this.height/2);
+        ctx.beginPath(); ctx.arc(this.centerX, team==='player'? this.y+this.height: this.y, 45, Math.PI, 0, team==='player'); ctx.fill();
+        ctx.strokeStyle = tr.trim; ctx.lineWidth = 3; ctx.stroke();
+
+        // rank stars + label
+        ctx.fillStyle = tr.outline; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center';
+        ctx.fillText('★'.repeat(tier + 1), this.centerX, this.y + this.height/2 - 16);
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px Arial';
+        ctx.fillText(team === 'player' ? `PLAYER FORTRESS Lv.${lvl}` : `ENEMY FORTRESS Lv.${lvl}`, this.centerX, this.y + this.height/2 + 8);
     }
 }
 let playerBase = null, cpuBase = null;
@@ -669,6 +728,8 @@ class Unit {
         this.armorClass = tpl.armor;
 
         const techLvl = team === 'player' ? playerTech.unitLvls[type] : cpu.unitLvls[type];
+        this.techLvl = techLvl;
+        this.tier = tierFor(techLvl); // 0..3 visual rank that evolves the unit's look
         this.reward = tpl.bounty * (1 + (techLvl - 1) * 0.5);
         this.maxHp = getStat(team, type, 'hp');
         this.hp = this.maxHp;
@@ -812,12 +873,13 @@ class Unit {
 
         if (enemies.length) {
             if (this.role === 'assassin') {
-                // dive healers/ranged first
+                // Dive healers/ranged, but only when reachable — otherwise fight the
+                // nearest enemy so the assassin doesn't sprint the whole map and die.
                 let best = null, bestScore = -Infinity;
                 for (let u of enemies) {
                     const d = Math.hypot(u.x-this.x, u.y-this.y);
-                    let pri = (u.role === 'healer') ? 3 : (u.role === 'ranged') ? 2 : 0;
-                    const score = pri * 1000 - d;
+                    const pri = (d < 700) ? ((u.role === 'healer') ? 3 : (u.role === 'ranged') ? 2 : 0) : 0;
+                    const score = pri * 400 - d; // distance dominates beyond a reachable dive
                     if (score > bestScore) { bestScore = score; best = u; }
                 }
                 if (best) return best;
@@ -904,9 +966,12 @@ class Unit {
         ctx.rotate(this.angle); ctx.translate(aThrust, 0);
         ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(-2, 3, this.radius, this.radius*0.8, 0, 0, Math.PI*2); ctx.fill();
 
-        // frozen tint
+        // Tier styling: higher-level units get a brighter, glowing rank outline.
+        const tr = TIER[this.tier];
         ctx.fillStyle = this.freezeTimer > 0 ? '#67e8f9' : this.color;
-        ctx.strokeStyle = '#111'; ctx.lineWidth = 2;
+        ctx.strokeStyle = this.tier > 0 ? tr.outline : '#111';
+        ctx.lineWidth = tr.lw;
+        if (tr.glow > 0) { ctx.shadowColor = tr.outline; ctx.shadowBlur = tr.glow; }
         const s = this.shape;
         if (s === 'circle' || s === 'hero') { ctx.beginPath(); ctx.arc(0,0,this.radius,0,Math.PI*2); ctx.fill(); ctx.stroke(); }
         else if (s === 'square') { ctx.fillRect(-this.radius, -this.radius*0.8, this.radius*2, this.radius*1.6); ctx.strokeRect(-this.radius, -this.radius*0.8, this.radius*2, this.radius*1.6); }
@@ -920,13 +985,13 @@ class Unit {
         // weapon
         ctx.save(); ctx.rotate(aSwing);
         const t = this.type, r = this.radius;
-        if (t === 'recruit') { ctx.fillStyle='#ccc'; ctx.fillRect(r*0.2,-r*0.8,r*1.2,4); }
-        else if (t === 'knight') { ctx.fillStyle='#e2e8f0'; ctx.fillRect(r*0.4,-r,r*1.5,6); ctx.fillStyle='#d97706'; ctx.fillRect(r*0.4,-r*1.2,4,14); }
-        else if (t === 'spearman') { ctx.fillStyle='#78350f'; ctx.fillRect(-r*0.5,r*0.5,r*2.5,4); ctx.fillStyle='#ccc'; ctx.beginPath(); ctx.moveTo(r*2,r*0.5-3); ctx.lineTo(r*2.8,r*0.5+2); ctx.lineTo(r*2,r*0.5+7); ctx.fill(); }
+        if (t === 'recruit') { ctx.fillStyle=tr.metal; ctx.fillRect(r*0.2,-r*0.8,r*1.2,4); }
+        else if (t === 'knight') { ctx.fillStyle=tr.metal; ctx.fillRect(r*0.4,-r,r*1.5,6); ctx.fillStyle=tr.trim; ctx.fillRect(r*0.4,-r*1.2,4,14); }
+        else if (t === 'spearman') { ctx.fillStyle='#78350f'; ctx.fillRect(-r*0.5,r*0.5,r*2.5,4); ctx.fillStyle=tr.metal; ctx.beginPath(); ctx.moveTo(r*2,r*0.5-3); ctx.lineTo(r*2.8,r*0.5+2); ctx.lineTo(r*2,r*0.5+7); ctx.fill(); }
         else if (t === 'shield') { ctx.fillStyle='#334155'; ctx.beginPath(); ctx.arc(r*0.3,0,r*1.2,-Math.PI/2,Math.PI/2); ctx.fill(); ctx.stroke(); }
         else if (t === 'assassin') { ctx.fillStyle='#10b981'; ctx.fillRect(r*0.3,-r*0.8,r,3); ctx.fillRect(r*0.3,r*0.6,r,3); }
         else if (t === 'archer') { ctx.strokeStyle='#a16207'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(r*0.5,0,r,-Math.PI/2.5,Math.PI/2.5); ctx.stroke(); }
-        else if (t === 'crossbow') { ctx.fillStyle='#7c2d12'; ctx.fillRect(r*0.2,-3,r*1.2,6); ctx.fillStyle='#94a3b8'; ctx.fillRect(r*1.0,-r*0.8,4,r*1.6); }
+        else if (t === 'crossbow') { ctx.fillStyle='#7c2d12'; ctx.fillRect(r*0.2,-3,r*1.2,6); ctx.fillStyle=tr.metal; ctx.fillRect(r*1.0,-r*0.8,4,r*1.6); }
         else if (t === 'pyro') { ctx.fillStyle='#fbbf24'; ctx.beginPath(); ctx.arc(r*0.8,-r*0.5,5,0,Math.PI*2); ctx.fill(); }
         else if (t === 'healer') { ctx.fillStyle='#fef08a'; ctx.fillRect(r*0.2,-r*0.8,r*1.2,4); }
         else if (t === 'champion') { ctx.fillStyle='#dc2626'; ctx.beginPath(); ctx.moveTo(-r,-r); ctx.lineTo(-r*2,-r*1.5); ctx.lineTo(-r*2,r*1.5); ctx.lineTo(-r,r); ctx.fill(); ctx.fillStyle='#fef08a'; ctx.fillRect(r*0.4,-r,r*2,8); }
@@ -934,7 +999,20 @@ class Unit {
         ctx.restore();
 
         ctx.translate(-aThrust, 0); ctx.rotate(-this.angle);
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+
+        // Rank decorations: a tier aura ring + a small crown for elite (tier 3) units.
+        if (!this.isBoss && this.tier >= 2) {
+            ctx.strokeStyle = tr.outline; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(0, 0, this.radius + 5, 0, Math.PI*2); ctx.stroke(); ctx.globalAlpha = 1;
+        }
+        if (!this.isBoss && this.tier === 3) {
+            ctx.fillStyle = tr.outline;
+            const cy = -this.radius - 9;
+            ctx.beginPath();
+            ctx.moveTo(-6, cy); ctx.lineTo(-6, cy-5); ctx.lineTo(-2, cy-2); ctx.lineTo(0, cy-6);
+            ctx.lineTo(2, cy-2); ctx.lineTo(6, cy-5); ctx.lineTo(6, cy); ctx.closePath(); ctx.fill();
+        }
 
         // colorblind team marker: shape badge (▲ player / ■ enemy) above unit
         if (settings.colorblind) {
@@ -947,7 +1025,7 @@ class Unit {
         if (this.shieldWall) { ctx.strokeStyle = 'rgba(96,165,250,0.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0,0,this.radius+4,0,Math.PI*2); ctx.stroke(); }
 
         const techLvl = this.team === 'player' ? playerTech.unitLvls[this.type] : cpu.unitLvls[this.type];
-        if (!this.isBoss) { ctx.fillStyle='#fff'; ctx.font='bold 9px Arial'; ctx.textAlign='center'; ctx.fillText(`v${techLvl}`, 0, 4); }
+        if (!this.isBoss) { ctx.fillStyle = this.tier > 0 ? tr.outline : '#fff'; ctx.font='bold 9px Arial'; ctx.textAlign='center'; ctx.fillText(`v${techLvl}`, 0, 4); }
 
         if (this.hp < this.maxHp) {
             const bw = this.radius*2.2;
@@ -1191,19 +1269,29 @@ let hintTimer = 0;
 function flashHint(msg) { const el = document.getElementById('hint-text'); el.innerText = msg; hintTimer = 120; }
 
 /* ===================== INPUT (tap to cast) =========================== */
-let lastTapTime = 0;
-canvas.addEventListener('click', (e) => {
+// Track the press start so a scroll-drag is never mistaken for a cast/tap.
+let lastTapTime = 0, pressX = 0, pressY = 0, pressMoved = false;
+function onPressStart(x, y) { pressX = x; pressY = y; pressMoved = false; }
+function onPressMove(x, y) { if (Math.abs(x - pressX) > 12 || Math.abs(y - pressY) > 12) pressMoved = true; }
+canvas.addEventListener('pointerdown', e => onPressStart(e.clientX, e.clientY));
+canvas.addEventListener('pointermove', e => onPressMove(e.clientX, e.clientY));
+canvas.addEventListener('touchstart', e => { if (e.touches[0]) onPressStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+canvas.addEventListener('touchmove', e => { if (e.touches[0]) onPressMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+
+function handleTap(clientX, clientY) {
+    if (pressMoved) return; // it was a scroll gesture, not a tap
     const rect = canvas.getBoundingClientRect();
-    const wx = (e.clientX - rect.left);
-    const wy = (e.clientY - rect.top);
+    const wx = (clientX - rect.left);
+    const wy = (clientY - rect.top);
+
+    if (armedSpell && gameState === 'PLAYING') { castSpell(armedSpell, wx, wy); lastTapTime = 0; return; }
 
     // double-tap to jump to the front line
     const now = performance.now();
-    if (now - lastTapTime < 300 && !armedSpell) jumpToFrontline();
+    if (now - lastTapTime < 300) jumpToFrontline();
     lastTapTime = now;
-
-    if (armedSpell && gameState === 'PLAYING') castSpell(armedSpell, wx, wy);
-});
+}
+canvas.addEventListener('click', e => handleTap(e.clientX, e.clientY));
 
 function jumpToFrontline() {
     if (!units.length) return;
@@ -1241,11 +1329,28 @@ function buildLevelSelectUI() {
     }
 }
 
+// One-line special-ability blurb shown in each unit's tooltip.
+const UNIT_ABILITY = {
+    recruit:  'Cheap, fast frontline filler.',
+    knight:   'Charges in for bonus damage; heavy armor tanks arrows.',
+    spearman: 'Long reach. ×2.2 damage vs heroes & bosses.',
+    shield:   'Shield-wall: −35% damage to allies behind it.',
+    assassin: 'Stealthed until close, then dives the backline (×2 backstab).',
+    archer:   'Long range; piercing shots shred light armor.',
+    crossbow: 'Armor-piercing bolts punch through heavy armor.',
+    pyro:     'Lobs fireballs that splash a whole cluster.',
+    healer:   'Heals the lowest-HP ally instead of attacking.',
+    champion: 'Elite hero; cleaves all nearby enemies on each hit.',
+};
+// Attacks per second, derived from the cooldown (game runs at ~60 ticks/sec).
+function fireRate(key) { return (60 / UNIT_TEMPLATES[key].cd).toFixed(1); }
+
 function buildRosterUI() {
     const roster = document.getElementById('troop-roster');
     roster.innerHTML = '';
     PLAYER_UNITS.forEach(key => {
         const u = UNIT_TEMPLATES[key];
+        const lvl = playerTech.unitLvls[key];
         const btn = document.createElement('button');
         btn.id = `btn-deploy-${key}`; btn.className = 'btn-troop';
         btn.innerHTML = `
@@ -1254,14 +1359,21 @@ function buildRosterUI() {
             <div class="flex items-center gap-1 mt-0.5 text-[9px] sm:text-[10px] pointer-events-none">
                 <span class="text-amber-400 font-black" id="cost-${key}">${getStat('player', key, 'cost')}g</span>
             </div>
-            <div class="tooltip bg-slate-900 border border-blue-500 p-2 rounded shadow-2xl text-[10px] text-left text-slate-200">
-                <div class="font-black text-blue-400 mb-1 border-b border-slate-700 pb-1">${u.name}</div>
+            <div class="tooltip bg-slate-900 border border-blue-500 p-2 rounded shadow-2xl text-[10px] text-left text-slate-200" style="width:184px">
+                <div class="font-black text-blue-400 mb-1 border-b border-slate-700 pb-1 flex justify-between">
+                    <span>${u.name}</span><span class="text-white bg-blue-700 px-1.5 rounded text-[9px]">LVL <span id="tt-lvl-${key}">${lvl}</span></span>
+                </div>
                 <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
                     <div>❤️ HP: <span id="tt-hp-${key}" class="text-green-400 font-bold">${getStat('player',key,'hp')}</span></div>
                     <div>⚔️ DMG: <span id="tt-dmg-${key}" class="text-red-400 font-bold">${getStat('player',key,'dmg')}</span></div>
-                    <div class="text-amber-300">${u.dmgType}</div>
-                    <div class="text-sky-300">${u.armor} armor</div>
+                    <div>🎯 Range: <span class="text-sky-300 font-bold">${u.range}</span></div>
+                    <div>⏱️ Rate: <span class="text-sky-300 font-bold">${fireRate(key)}/s</span></div>
+                    <div>🏃 Speed: <span class="text-sky-300 font-bold">${u.speed}</span></div>
+                    <div>${u.isRanged ? '🏹 Ranged' : (u.isHealer ? '💖 Support' : '🗡️ Melee')}</div>
+                    <div>💥 <span class="text-amber-300">${u.dmgType}</span></div>
+                    <div>🛡️ <span class="text-purple-300">${u.armor}</span></div>
                 </div>
+                <div class="mt-1 pt-1 border-t border-slate-700 text-[9px] text-slate-300 leading-snug">${UNIT_ABILITY[key] || ''}</div>
             </div>`;
         btn.onclick = () => spawnUnit('player', key);
         btn.addEventListener('touchstart', (e) => { e.preventDefault(); spawnUnit('player', key); });
@@ -1442,6 +1554,7 @@ function startGame(level) {
     if (mode === 'endless') { cpu.gold = 200; cpu.income = 12; }
 
     generateEnvironment();
+    buildRosterUI(); // refresh tooltips/costs to reflect current upgrade levels
     playerBase = new Base('player');
     cpuBase = new Base('cpu');
 

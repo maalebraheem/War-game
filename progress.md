@@ -64,6 +64,20 @@ All tunable numbers live in the `CONFIG` object at the top of the `<script>`.
 ### Tier 8 — Visual identity
 - Biome variation per campaign tier: grassland → snow → volcanic → void.
 
+## Session 2 — feedback fixes
+- **Richer unit tooltips**: now show level, HP, DMG, range, fire rate (attacks/sec),
+  move speed, melee/ranged/support, damage type, armor class, and a one-line special
+  ability (`UNIT_ABILITY`). Roster rebuilds on match start so values reflect upgrades.
+- **Assassin targeting fixed**: it no longer sprints across the whole map to a far backline
+  target and dies. It now only dives healers/ranged within ~700px (`pri*400 - d`) and
+  otherwise fights the nearest enemy, so it actually connects.
+- **Scroll while a spell is armed**: removed `touch-action:none` on the casting canvas and
+  added tap-vs-drag detection (`pressMoved`) — a clean tap casts, a drag scrolls.
+- **Visual upgrade tiers** (`tierFor` / `TIER`): units and fortresses change appearance as
+  they level — glowing rank outline (bronze→silver→gold→crystal), brighter weapon metal,
+  aura ring at tier 2, crown at tier 3; castles gain taller corner towers, flags, gold
+  trim, crenellations, a glow, and rank stars.
+
 ## Next / deferred (nice-to-have, not in Definition of Done)
 - Loadout/deck (pick 6 of N) and unlock-gating of units.
 - Talent-tree branches / prestige in the War Room (currently linear +25% upgrades).
