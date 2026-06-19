@@ -71,6 +71,11 @@ All tunable numbers live in the `CONFIG` object at the top of the `<script>`.
 - **Assassin targeting fixed**: it no longer sprints across the whole map to a far backline
   target and dies. It now only dives healers/ranged within ~700px (`pri*400 - d`) and
   otherwise fights the nearest enemy, so it actually connects.
+  - **Follow-up (root cause):** that still let it walk *past* a frontline blocker to reach
+    a nearby archer, so it never fought the soldiers in front of it. Now it targets the
+    nearest enemy outright (only lunging to a squishy within ~70px), keeping its ×2 backstab
+    bonus in `computeDamage`. Verified headlessly: it engages a knight blocker (280→92 HP)
+    instead of walking past it.
 - **Scroll while a spell is armed**: removed `touch-action:none` on the casting canvas and
   added tap-vs-drag detection (`pressMoved`) — a clean tap casts, a drag scrolls.
 - **Visual upgrade tiers** (`tierFor` / `TIER`): units and fortresses change appearance as

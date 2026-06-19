@@ -873,16 +873,15 @@ class Unit {
 
         if (enemies.length) {
             if (this.role === 'assassin') {
-                // Dive healers/ranged, but only when reachable — otherwise fight the
-                // nearest enemy so the assassin doesn't sprint the whole map and die.
-                let best = null, bestScore = -Infinity;
+                // Engage whatever's in front (nearest enemy) so it never walks past a
+                // blocker; only lunge to a squishy if one is essentially adjacent.
+                let nearest = null, nd = Infinity, dive = null, dd = Infinity;
                 for (let u of enemies) {
                     const d = Math.hypot(u.x-this.x, u.y-this.y);
-                    const pri = (d < 700) ? ((u.role === 'healer') ? 3 : (u.role === 'ranged') ? 2 : 0) : 0;
-                    const score = pri * 400 - d; // distance dominates beyond a reachable dive
-                    if (score > bestScore) { bestScore = score; best = u; }
+                    if (d < nd) { nd = d; nearest = u; }
+                    if ((u.role === 'ranged' || u.role === 'healer') && d < 70 && d < dd) { dd = d; dive = u; }
                 }
-                if (best) return best;
+                return dive || nearest;
             } else if (this.role === 'ranged') {
                 // prefer backline (enemies nearest their own base) within sight
                 let best = null, bestDepth = -Infinity, fallback = null, fbDist = Infinity;
