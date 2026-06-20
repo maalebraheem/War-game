@@ -64,6 +64,13 @@ All tunable numbers live in the `CONFIG` object at the top of the `<script>`.
 ### Tier 8 — Visual identity
 - Biome variation per campaign tier: grassland → snow → volcanic → void.
 
+## Session 3 — feedback fixes
+- **Upgrades now improve every combat stat**, not just HP/DMG. `getStat` scales range
+  (+3%/lvl), move speed (+2%/lvl) and attack rate (cooldown −2.5%/lvl, floored) via
+  `CONFIG.statGrowth`; the unit constructor reads these scaled values. Tooltips and War Room
+  cards now show Range / Fire-rate / Speed climbing with level. (Match gold cost still rises
+  with level by design — it's the economy lever, not a combat stat; easy to flatten if wanted.)
+
 ## Session 2 — feedback fixes
 - **Richer unit tooltips**: now show level, HP, DMG, range, fire rate (attacks/sec),
   move speed, melee/ranged/support, damage type, armor class, and a one-line special

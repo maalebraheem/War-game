@@ -348,6 +348,8 @@ const CONFIG = {
 
     // Permanent upgrade scaling
     perLevelStat: 0.25,        // +25% hp/dmg per unit level
+    // Every combat stat improves on upgrade (per level beyond 1):
+    statGrowth: { speed: 0.02, range: 0.03, cdReduce: 0.025, cdFloor: 0.5 },
     unitCostGrowth: 1.10,
     unitUpgGrowthCost: 1.5,
     baseUpgCost: 200,
@@ -583,8 +585,14 @@ function initMatchStates(level) {
 function getStat(team, unitType, stat) {
     const lvl = team === 'player' ? playerTech.unitLvls[unitType] : cpu.unitLvls[unitType];
     const tpl = UNIT_TEMPLATES[unitType];
+    const g = CONFIG.statGrowth;
     if (stat === 'hp') return Math.floor(tpl.baseHp * (1 + (lvl - 1) * CONFIG.perLevelStat));
     if (stat === 'dmg') return Math.floor(tpl.baseDmg * (1 + (lvl - 1) * CONFIG.perLevelStat));
+    // All combat stats improve with level: longer range, faster move, quicker attacks.
+    if (stat === 'range') return Math.round(tpl.range * (1 + (lvl - 1) * g.range));
+    if (stat === 'speed') return +(tpl.speed * (1 + (lvl - 1) * g.speed)).toFixed(2);
+    if (stat === 'cd') return Math.max(8, Math.round(tpl.cd * Math.max(g.cdFloor, 1 - (lvl - 1) * g.cdReduce)));
+    if (stat === 'rate') return +(60 / getStat(team, unitType, 'cd')).toFixed(1); // attacks/sec
     if (stat === 'cost') return Math.floor(tpl.baseCost * Math.pow(CONFIG.unitCostGrowth, lvl - 1));
     if (stat === 'upgCost') return Math.floor(100 * Math.pow(CONFIG.unitUpgGrowthCost, lvl - 1));
     return tpl[stat];
@@ -734,9 +742,9 @@ class Unit {
         this.maxHp = getStat(team, type, 'hp');
         this.hp = this.maxHp;
         this.dmg = getStat(team, type, 'dmg');
-        this.range = tpl.range;
-        this.baseSpeed = tpl.speed; this.speed = tpl.speed;
-        this.maxCd = tpl.cd; this.cd = Math.random() * 10;
+        this.range = getStat(team, type, 'range');
+        this.baseSpeed = getStat(team, type, 'speed'); this.speed = this.baseSpeed;
+        this.maxCd = getStat(team, type, 'cd'); this.cd = Math.random() * 10;
         this.radius = tpl.radius;
         this.isRanged = !!tpl.isRanged;
         this.bullet = tpl.bullet;
@@ -1342,7 +1350,7 @@ const UNIT_ABILITY = {
     champion: 'Elite hero; cleaves all nearby enemies on each hit.',
 };
 // Attacks per second, derived from the cooldown (game runs at ~60 ticks/sec).
-function fireRate(key) { return (60 / UNIT_TEMPLATES[key].cd).toFixed(1); }
+function fireRate(key) { return getStat('player', key, 'rate'); }
 
 function buildRosterUI() {
     const roster = document.getElementById('troop-roster');
@@ -1365,9 +1373,9 @@ function buildRosterUI() {
                 <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
                     <div>❤️ HP: <span id="tt-hp-${key}" class="text-green-400 font-bold">${getStat('player',key,'hp')}</span></div>
                     <div>⚔️ DMG: <span id="tt-dmg-${key}" class="text-red-400 font-bold">${getStat('player',key,'dmg')}</span></div>
-                    <div>🎯 Range: <span class="text-sky-300 font-bold">${u.range}</span></div>
+                    <div>🎯 Range: <span class="text-sky-300 font-bold">${getStat('player',key,'range')}</span></div>
                     <div>⏱️ Rate: <span class="text-sky-300 font-bold">${fireRate(key)}/s</span></div>
-                    <div>🏃 Speed: <span class="text-sky-300 font-bold">${u.speed}</span></div>
+                    <div>🏃 Speed: <span class="text-sky-300 font-bold">${getStat('player',key,'speed')}</span></div>
                     <div>${u.isRanged ? '🏹 Ranged' : (u.isHealer ? '💖 Support' : '🗡️ Melee')}</div>
                     <div>💥 <span class="text-amber-300">${u.dmgType}</span></div>
                     <div>🛡️ <span class="text-purple-300">${u.armor}</span></div>
@@ -1421,10 +1429,12 @@ function buildWarRoomUI() {
                 <div class="text-[9px] text-right text-slate-400 uppercase leading-tight">${u.dmgType}<br>${u.armor}</div>
             </div>
             <div class="grid grid-cols-2 gap-2 text-xs text-slate-300 bg-slate-900/50 p-2 rounded">
-                <div>Health: <span id="wr-hp-${key}" class="text-green-400 font-bold">0</span></div>
-                <div>Damage: <span id="wr-dmg-${key}" class="text-red-400 font-bold">0</span></div>
-                <div>Cost: <span id="wr-cost-${key}" class="text-amber-400 font-bold">0</span>g</div>
-                <div>Next: <span class="text-green-400">+25%</span></div>
+                <div>❤️ Health: <span id="wr-hp-${key}" class="text-green-400 font-bold">0</span></div>
+                <div>⚔️ Damage: <span id="wr-dmg-${key}" class="text-red-400 font-bold">0</span></div>
+                <div>🎯 Range: <span id="wr-range-${key}" class="text-sky-300 font-bold">0</span></div>
+                <div>⏱️ Rate: <span id="wr-rate-${key}" class="text-sky-300 font-bold">0</span>/s</div>
+                <div>🏃 Speed: <span id="wr-speed-${key}" class="text-sky-300 font-bold">0</span></div>
+                <div>💰 Cost: <span id="wr-cost-${key}" class="text-amber-400 font-bold">0</span>g</div>
             </div>
             <button id="btn-wr-upg-${key}" class="mt-2 w-full bg-blue-700 hover:bg-blue-600 text-white font-bold py-2 rounded shadow transition flex justify-center items-center gap-2 active:scale-[0.98]">
                 RESEARCH <span class="bg-black/30 px-2 py-0.5 rounded text-yellow-400 text-xs" id="wr-upg-cost-${key}">100 💎</span></button>`;
@@ -1454,6 +1464,9 @@ function updateWarRoomData() {
         document.getElementById(`wr-lvl-${key}`).innerText = playerTech.unitLvls[key];
         document.getElementById(`wr-hp-${key}`).innerText = getStat('player', key, 'hp');
         document.getElementById(`wr-dmg-${key}`).innerText = getStat('player', key, 'dmg');
+        document.getElementById(`wr-range-${key}`).innerText = getStat('player', key, 'range');
+        document.getElementById(`wr-rate-${key}`).innerText = getStat('player', key, 'rate');
+        document.getElementById(`wr-speed-${key}`).innerText = getStat('player', key, 'speed');
         document.getElementById(`wr-cost-${key}`).innerText = getStat('player', key, 'cost');
         const upgC = getStat('player', key, 'upgCost');
         document.getElementById(`wr-upg-cost-${key}`).innerText = `${upgC} 💎`;
